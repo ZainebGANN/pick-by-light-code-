@@ -1,0 +1,166 @@
+import tkinter as tk
+from tkinter import messagebox
+from PIL import Image, ImageTk
+import mysql.connector
+import json
+
+CONFIG_FILE = "config.json"
+
+class Application(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Material Management")
+
+
+        # Set the application to full screen
+        self.attributes('-fullscreen', True)
+        self.bind("<F11>", self.toggle_fullscreen)
+        self.bind("<Escape>", self.end_fullscreen)
+
+        self.configure(bg='#f5f5f5')
+        self.material_entries = []
+        self.predefined_led_pins = [18, 23, 24, 25, 12, 16, 18, 23, 24, 25, 12, 16]
+        self.predefined_button_pins = [5, 6, 13, 19, 26, 11, 5, 6, 13, 19, 26, 11]
+        self.status_led_pin = 17
+        self.predefined_materials = ["3PA0270500120", "5PA80BCMB2102"]
+
+        self.create_widgets()
+
+    def create_widgets(self):
+        # Background Image
+        background_image = Image.open("background.png")
+        background_image = background_image.resize((self.winfo_screenwidth(), self.winfo_screenheight()), Image.LANCZOS)
+        self.background_image = ImageTk.PhotoImage(background_image)
+        bg_label = tk.Label(self, image=self.background_image)
+        bg_label.place(relwidth=1, relheight=1)
+
+        # Header Frame
+        header_frame = tk.Frame(self, height=20)  # Reduced height for smaller header
+        header_frame.pack(fill='x', padx=10, pady=10)
+
+        # Company Logo (resize the logo image)
+        self.logo_image = Image.open("logo.png")
+        self.logo_image = self.logo_image.resize((100, 20), Image.LANCZOS)  # Adjust size as needed
+        self.logo_image = ImageTk.PhotoImage(self.logo_image)
+        logo_label = tk.Label(header_frame, image=self.logo_image,)
+        logo_label.pack(side='left', padx=0, pady=0)
+
+        # Title
+        title_label = tk.Label(header_frame, text="Material Management Configuration", font=('Helvetica', 16, 'bold'), fg='black')
+        title_label.pack(side='right', padx=10, pady=10)
+
+        # Main Content Frame with a bit of transparency
+        main_frame = tk.Frame(self, bg='#ffffff')  # Transparent background effect achieved by combining colors
+        main_frame.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        # Adding a canvas to create transparent effect
+        canvas = tk.Canvas(main_frame, bg='#ffffff', highlightthickness=0)
+        canvas.pack(fill='both', expand=True)
+        canvas.create_rectangle(0, 0, self.winfo_screenwidth(), self.winfo_screenheight(), fill='#ffffff', stipple='gray50')
+
+        # Form
+        form_frame = tk.Frame(canvas, bg='#ffffff', padx=20, pady=20)
+        form_frame.place(relx=0.5, rely=0.5, anchor='center')
+
+        # Workstation Name Entry
+        tk.Label(form_frame, text="Workstation Name", font=('Helvetica', 12), bg='#ffffff').grid(row=0, column=0, pady=(10, 5), padx=10, sticky='w')
+        self.workstation_name_entry = tk.Entry(form_frame, font=('Helvetica', 12), relief='flat', bd=0, bg='#e0e0e0')
+        self.workstation_name_entry.grid(row=0, column=1, pady=(10, 5), padx=10, ipadx=5, ipady=5, sticky='ew')
+
+        # Raspberry Pi IP Entry
+        tk.Label(form_frame, text="Raspberry Pi IP", font=('Helvetica', 12), bg='#ffffff').grid(row=1, column=0, pady=(5, 5), padx=10, sticky='w')
+        self.raspberry_ip_entry = tk.Entry(form_frame, font=('Helvetica', 12), relief='flat', bd=0, bg='#e0e0e0')
+        self.raspberry_ip_entry.grid(row=1, column=1, pady=(5, 5), padx=10, ipadx=5, ipady=5, sticky='ew')
+
+        # Input Fields for Materials
+        for i in range(12):
+            tk.Label(form_frame, text=f"Material Code {i+1}", font=('Helvetica', 12), bg='#ffffff').grid(row=i+2, column=0, pady=(5, 5), padx=10, sticky='w')
+            material_entry = tk.Entry(form_frame, font=('Helvetica', 12), relief='flat', bd=0, bg='#e0e0e0')
+            material_entry.grid(row=i+2, column=1, pady=(5, 5), padx=10, ipadx=5, ipady=5, sticky='ew')
+            self.material_entries.append(material_entry)
+
+            # Display LED and Button pins
+            tk.Label(form_frame, text=f"LED Pin: {self.predefined_led_pins[i]}", font=('Helvetica', 12), bg='#ffffff').grid(row=i+2, column=2, pady=(5, 5), padx=10, sticky='w')
+            tk.Label(form_frame, text=f"Button Pin: {self.predefined_button_pins[i]}", font=('Helvetica', 12), bg='#ffffff').grid(row=i+2, column=3, pady=(5, 5), padx=10, sticky='w')
+
+        # Submit Button
+        submit_button = tk.Button(form_frame, text="Submit", command=self.submit_data, font=('Helvetica', 12), bg='#28a745', fg='white', relief='flat', height=2)
+        submit_button.grid(row=14, column=0, columnspan=4, pady=(20, 20), sticky='ew')
+
+        # Footer Frame
+        footer_frame = tk.Frame(self, bg='#007BFF', height=50)
+        footer_frame.pack(side='bottom', fill='x')
+
+        # Footer Content
+        footer_label = tk.Label(footer_frame, text="© 2024 Company Name | All Rights Reserved", font=('Helvetica', 10), bg='#007BFF', fg='white')
+        footer_label.pack(pady=10)
+
+    def toggle_fullscreen(self, event=None):
+        self.attributes('-fullscreen', True)
+
+    def end_fullscreen(self, event=None):
+        self.attributes('-fullscreen', False)
+
+    def submit_data(self):
+        workstation_name = self.workstation_name_entry.get()
+        raspberry_ip = self.raspberry_ip_entry.get()
+        materials = [entry.get() for entry in self.material_entries]
+
+        if not workstation_name or not raspberry_ip:
+            messagebox.showwarning("Input Error", "Please provide Workstation Name and Raspberry Pi IP")
+            return
+
+        # Filter out empty material fields
+        non_empty_materials = {f'material_code_{i+1}': materials[i] for i in range(len(materials)) if materials[i]}
+
+        try:
+            # Connect to MySQL database
+            conn = mysql.connector.connect(
+                host="10.110.10.204",
+                user="Zaineb",
+                password="Passw0rd123",
+                database="inventory_management"
+            )
+            cursor = conn.cursor()
+
+            # Dynamically build the query with only non-empty material fields
+            columns = ', '.join(non_empty_materials.keys()) + ', workstation_name, raspberry_pi_ip'
+            values_placeholders = ', '.join(['%s'] * len(non_empty_materials)) + ', %s, %s'
+            query = f"INSERT INTO workstations ({columns}) VALUES ({values_placeholders})"
+
+            # Prepare values for the query
+            values = list(non_empty_materials.values()) + [workstation_name, raspberry_ip]
+
+            cursor.execute(query, values)
+
+            # Create the LED and Button pin mapping as JSON only for non-empty materials
+            led_pins_mapping = {materials[i]: self.predefined_led_pins[i] for i in range(len(materials)) if materials[i]}
+            button_pins_mapping = {materials[i]: self.predefined_button_pins[i] for i in range(len(materials)) if materials[i]}
+
+            # Insert the Raspberry Pi configuration into the raspberry_configuration table
+            raspberry_config_query = """
+                INSERT INTO raspberry_configuration
+                (machine_name, led_pins, button_pins, status_led_pin, predefined_materials, ip_address)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(raspberry_config_query, (
+                workstation_name,
+                json.dumps(led_pins_mapping),
+                json.dumps(button_pins_mapping),
+                self.status_led_pin,
+                json.dumps(self.predefined_materials),
+                raspberry_ip
+            ))
+
+            conn.commit()
+            conn.close()
+
+            messagebox.showinfo("Success", "Workstation and Raspberry Pi configuration added successfully")
+        except mysql.connector.Error as err:
+            messagebox.showerror("Database Error", f"Error: {err}")
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    app = Application()
+    app.mainloop()
